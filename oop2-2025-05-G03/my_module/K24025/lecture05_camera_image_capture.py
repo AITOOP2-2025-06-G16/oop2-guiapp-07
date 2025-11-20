@@ -31,7 +31,7 @@ class MyVideoCapture(QWidget):
         self.setLayout(layout)
 
         # --- カメラ初期化 ---
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(1)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 

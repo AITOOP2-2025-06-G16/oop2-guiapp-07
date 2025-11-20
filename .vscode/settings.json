@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./oop2-2025-05-G03/my_module/K24025"
+    ]
+}

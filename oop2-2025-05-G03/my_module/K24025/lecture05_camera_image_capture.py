@@ -1,104 +1,92 @@
-import numpy as np
+import sys
 import cv2
+import numpy as np
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout
 
 
-class MyVideoCapture:
-    """Webカメラから映像を取得し、中心にターゲットマークを描画して表示・保存するクラス。
-
-    Attributes:
-        DELAY (int): 各フレームの表示間隔（ミリ秒）。
-        cap (cv2.VideoCapture): OpenCVのビデオキャプチャオブジェクト。
-        captured_img (np.ndarray | None): 最後にキャプチャされた画像データ。
+class MyVideoCapture(QWidget):
+    """
+    PySide6 で動く Webカメラキャプチャアプリ（課題用）
+    - ウィンドウを表示
+    - カメラ映像を QLabel に表示
+    - 「写真を撮る」ボタンで画像を保存
     """
 
-    DELAY: int = 100  # 100 msecのディレイ
+    def __init__(self):
+        super().__init__()
 
-    def __init__(self) -> None:
-        """Webカメラを初期化する。
+        # --- UI 構築 ---
+        self.setWindowTitle("Camera Capture")
+        self.label = QLabel("カメラ映像がここに表示されます")
+        self.label.setFixedSize(640, 480)
 
-        Notes:
-            PCによってはカメラIDが0ではなく1で動作する場合があるため、
-            必要に応じて cv2.VideoCapture(1) に変更すること。
-        """
-        self.cap: cv2.VideoCapture = cv2.VideoCapture(0)
+        self.btn_capture = QPushButton("写真を撮る")
+        self.btn_capture.clicked.connect(self.capture_image)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        layout.addWidget(self.btn_capture)
+        self.setLayout(layout)
+
+        # --- カメラ初期化 ---
+        self.cap = cv2.VideoCapture(1)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.captured_img: np.ndarray | None = None
 
-    def run(self) -> None:
-        """カメラ映像を取得してリアルタイムに加工・表示する。
+        self.captured_img = None
 
-        処理の流れ:
-            1. カメラから1フレームを取得。
-            2. 取得した画像をコピーして加工（中心に赤いターゲットマークを描画）。
-            3. 加工後の画像を左右反転して表示。
-            4. 'q' キーが押されるまで処理を継続。
+        # --- タイマーでフレーム更新 ---
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)   # 30msごとに更新
 
-        Notes:
-            - フレームの読み込みに失敗した場合（ret=False）、ループを終了する。
-            - 終了時には最後にキャプチャした画像を `captured_img` に保持する。
-        """
-        while True:
-            # カメラ画像を１枚キャプチャする
-            ret, frame = self.cap.read()
+    def update_frame(self):
+        """カメラ映像を1フレーム取得して QLabel に表示"""
+        ret, frame = self.cap.read()
+        if not ret:
+            return
 
-            # リターンコードがFalseなら終了
-            if not ret:
-                break
+        img = frame.copy()
 
-            # 加工するともとの画像が保存できないのでコピーを生成
-            img: np.ndarray = np.copy(frame)
+        # ターゲットマーク描画
+        rows, cols, _ = img.shape
+        center = (cols // 2, rows // 2)
+        img = cv2.circle(img, center, 30, (0, 0, 255), 3)
+        img = cv2.circle(img, center, 60, (0, 0, 255), 3)
+        img = cv2.line(img, (center[0], center[1] - 80),
+                       (center[0], center[1] + 80), (0, 0, 255), 3)
+        img = cv2.line(img, (center[0] - 80, center[1]),
+                       (center[0] + 80, center[1]), (0, 0, 255), 3)
 
-            # 画像の中心を示すターゲットマークを描画
-            rows, cols, _ = img.shape
-            center = (int(cols / 2), int(rows / 2))
-            img = cv2.circle(img, center, 30, (0, 0, 255), 3)
-            img = cv2.circle(img, center, 60, (0, 0, 255), 3)
-            img = cv2.line(img, (center[0], center[1] - 80), (center[0], center[1] + 80), (0, 0, 255), 3)
-            img = cv2.line(img, (center[0] - 80, center[1]), (center[0] + 80, center[1]), (0, 0, 255), 3)
+        # 左右反転
+        img = cv2.flip(img, 1)
 
-            # 左右反転（顔を撮るときは左右反転しておくとよい）
-            img = cv2.flip(img, flipCode=1)
+        # OpenCV → Qt 表示形式へ変換
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+        pix = QPixmap.fromImage(qimg)
 
-            # 加工した画像を表示
-            cv2.imshow('frame', img)
+        # ラベルに表示
+        self.label.setPixmap(pix)
+        self.current_frame = frame.copy()
 
-            # 次の画像を処理するまでに時間間隔（msec）を空ける
-            # キーボードの'q'が押されたら終了
-            if cv2.waitKey(self.DELAY) & 0xFF == ord('q'):
-                self.captured_img = frame
-                break
+    def capture_image(self):
+        """現在のフレームを撮影して保存"""
+        if hasattr(self, "current_frame"):
+            self.captured_img = self.current_frame.copy()
+            cv2.imwrite("camera_capture.png", self.captured_img)
+            print("写真を保存しました → camera_capture.png")
 
-    def get_img(self) -> np.ndarray | None:
-        """最後にキャプチャされた画像を取得する。
-
-        Returns:
-            np.ndarray | None: キャプチャされた画像（BGR形式）。未取得の場合は None。
-        """
-        return self.captured_img
-
-    def write_img(self, filepath: str = 'output_images/camera_capture.png') -> None:
-        """キャプチャされた画像をファイルに保存する。
-
-        Args:
-            filepath (str, optional): 保存先のファイルパス。デフォルトは 'output_images/camera_capture.png'。
-
-        Raises:
-            ValueError: キャプチャ画像が存在しない場合。
-        """
-        if self.captured_img is None:
-            raise ValueError("キャプチャ画像が存在しません。run()を実行してから保存してください。")
-
-        cv2.imwrite(filepath, self.captured_img)
-
-    def __del__(self) -> None:
-        """終了処理。カメラリソースを解放し、OpenCVウィンドウを閉じる。"""
-        if hasattr(self, 'cap') and self.cap.isOpened():
+    def __del__(self):
+        if hasattr(self, "cap") and self.cap.isOpened():
             self.cap.release()
-        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    app = MyVideoCapture()
-    app.run()
-    app.write_img()
+    app = QApplication(sys.argv)
+    window = MyVideoCapture()
+    window.show()
+    sys.exit(app.exec())
